@@ -1,8 +1,8 @@
-"""Unzip archive.zip and prepare eye + yawn datasets for training.
+"""Prepare both eye and yawn datasets from a single archive.zip.
 
-Expected classes anywhere inside extracted archive folder:
-- Eye classes: open, closed
-- Yawn classes: yawn, no_yawn (or similar aliases)
+Output folders:
+- data/{train,valid,test}/{open,closed}
+- data_yawn/{train,valid,test}/{yawn,no_yawn}
 """
 
 from __future__ import annotations
@@ -12,12 +12,7 @@ import shutil
 import zipfile
 from pathlib import Path
 
-PROJECT_DIR = Path(__file__).resolve().parent
-ARCHIVE_PATH = PROJECT_DIR / "archive.zip"
-EXTRACT_DIR = PROJECT_DIR / "datasets" / "archive_extracted"
-
-EYE_OUTPUT = PROJECT_DIR / "data"
-YAWN_OUTPUT = PROJECT_DIR / "data_yawn"
+from app_config import ARCHIVE_PATH, EXTRACT_DIR, EYE_DATA_DIR, YAWN_DATA_DIR
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".webp"}
 SPLIT_RATIOS = {"train": 0.7, "valid": 0.15, "test": 0.15}
@@ -36,33 +31,33 @@ def normalize(value: str) -> str:
 
 
 def find_class_dirs(root: Path, aliases: set[str]) -> list[Path]:
-    normalized = {normalize(a) for a in aliases}
-    matched = []
-    for directory in root.rglob("*"):
-        if directory.is_dir() and normalize(directory.name) in normalized:
-            matched.append(directory)
-    return matched
+    alias_set = {normalize(a) for a in aliases}
+    return [p for p in root.rglob("*") if p.is_dir() and normalize(p.name) in alias_set]
 
 
 def collect_images(directories: list[Path]) -> list[Path]:
     files: list[Path] = []
     for directory in directories:
-        for path in directory.rglob("*"):
-            if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS:
-                files.append(path)
+        files.extend(
+            [
+                p
+                for p in directory.rglob("*")
+                if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
+            ]
+        )
     return files
 
 
 def split_files(files: list[Path]) -> dict[str, list[Path]]:
-    files = files[:]
-    random.Random(SEED).shuffle(files)
-    total = len(files)
+    items = files[:]
+    random.Random(SEED).shuffle(items)
+    total = len(items)
     train_end = int(total * SPLIT_RATIOS["train"])
     valid_end = train_end + int(total * SPLIT_RATIOS["valid"])
     return {
-        "train": files[:train_end],
-        "valid": files[train_end:valid_end],
-        "test": files[valid_end:],
+        "train": items[:train_end],
+        "valid": items[train_end:valid_end],
+        "test": items[valid_end:],
     }
 
 
@@ -74,10 +69,10 @@ def reset_output(base: Path, class_names: list[str]) -> None:
             (base / split / class_name).mkdir(parents=True, exist_ok=True)
 
 
-def write_split(split_files_map: dict[str, list[Path]], output: Path, class_name: str) -> None:
-    for split, files in split_files_map.items():
-        for index, source in enumerate(files):
-            dst = output / split / class_name / f"{source.stem}_{index}{source.suffix.lower()}"
+def copy_split(split_map: dict[str, list[Path]], output_dir: Path, class_name: str) -> None:
+    for split, files in split_map.items():
+        for i, source in enumerate(files):
+            dst = output_dir / split / class_name / f"{source.stem}_{i}{source.suffix.lower()}"
             shutil.copy2(source, dst)
 
 
@@ -89,26 +84,24 @@ def unzip_archive() -> None:
         shutil.rmtree(EXTRACT_DIR)
     EXTRACT_DIR.mkdir(parents=True, exist_ok=True)
 
-    with zipfile.ZipFile(ARCHIVE_PATH, "r") as zip_ref:
-        zip_ref.extractall(EXTRACT_DIR)
+    with zipfile.ZipFile(ARCHIVE_PATH, "r") as zf:
+        zf.extractall(EXTRACT_DIR)
 
 
-def prepare_task(output_dir: Path, spec: dict[str, set[str]]) -> None:
+def build_task(output_dir: Path, spec: dict[str, set[str]]) -> None:
     reset_output(output_dir, list(spec.keys()))
 
-    for class_name, alias_set in spec.items():
-        class_dirs = find_class_dirs(EXTRACT_DIR, alias_set)
+    for class_name, aliases in spec.items():
+        class_dirs = find_class_dirs(EXTRACT_DIR, aliases)
         if not class_dirs:
-            raise FileNotFoundError(
-                f"Could not find class directories for '{class_name}' with aliases: {sorted(alias_set)}"
-            )
+            raise FileNotFoundError(f"Missing class folders for '{class_name}' (aliases: {sorted(aliases)})")
 
         files = collect_images(class_dirs)
         if not files:
             raise FileNotFoundError(f"No images found for class '{class_name}'")
 
         split_map = split_files(files)
-        write_split(split_map, output_dir, class_name)
+        copy_split(split_map, output_dir, class_name)
         print(
             f"{output_dir.name}/{class_name}: "
             f"train={len(split_map['train'])}, valid={len(split_map['valid'])}, test={len(split_map['test'])}"
@@ -117,9 +110,9 @@ def prepare_task(output_dir: Path, spec: dict[str, set[str]]) -> None:
 
 def main() -> None:
     unzip_archive()
-    prepare_task(EYE_OUTPUT, {"open": ALIASES["open"], "closed": ALIASES["closed"]})
-    prepare_task(YAWN_OUTPUT, {"yawn": ALIASES["yawn"], "no_yawn": ALIASES["no_yawn"]})
-    print("Prepared both eye and yawn datasets successfully.")
+    build_task(EYE_DATA_DIR, {"open": ALIASES["open"], "closed": ALIASES["closed"]})
+    build_task(YAWN_DATA_DIR, {"yawn": ALIASES["yawn"], "no_yawn": ALIASES["no_yawn"]})
+    print("Dataset preparation complete.")
 
 
 if __name__ == "__main__":
