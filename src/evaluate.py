@@ -5,6 +5,7 @@ from src.config import (
     BATCH_SIZE,
     EYE_DATA_DIR,
     EYE_MODEL_PATH,
+    get_args,
     IMG_SIZE_EYES,
     IMG_SIZE_YAWNS,
     YAWN_DATA_DIR,

@@ -2,12 +2,6 @@
 import argparse
 import sys
 
-from src.data_prep import main as prep_main
-from src.detector import main as detect_main
-from src.evaluate import main as eval_main
-from src.model import main as train_main
-
-
 def _inject_target_arg(target: str):
     """Dynamically injects --target args so the src modules don't break."""
     if "--target" in sys.argv:
@@ -47,6 +41,7 @@ def main():
     try:
         if args.mode == "prep":
             print("\n🚀 Starting Dataset Preparation...")
+            from src.data_prep import main as prep_main
             prep_main()
 
         elif args.mode == "train":
@@ -54,6 +49,7 @@ def main():
                 parser.error("--target (eyes|yawns) is required when using --mode train")
             print(f"\n🧠 Starting Training for {args.target.upper()}...")
             _inject_target_arg(args.target)
+            from src.model import main as train_main
             train_main()
 
         elif args.mode == "eval":
@@ -61,10 +57,12 @@ def main():
                 parser.error("--target (eyes|yawns) is required when using --mode eval")
             print(f"\n📊 Starting Evaluation for {args.target.upper()}...")
             _inject_target_arg(args.target)
+            from src.evaluate import main as eval_main
             eval_main()
 
         elif args.mode == "detect":
             print("\n🎥 Starting Live Webcam Detector...")
+            from src.detector import main as detect_main
             detect_main()
 
     except KeyboardInterrupt:

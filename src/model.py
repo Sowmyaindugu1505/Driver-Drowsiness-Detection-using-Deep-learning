@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 from tensorflow.keras.layers import Conv2D, Dense, Dropout, Flatten, MaxPooling2D
@@ -10,6 +11,7 @@ from src.config import (
     EPOCHS,
     EYE_DATA_DIR,
     EYE_MODEL_PATH,
+    get_args,
     IMG_SIZE_EYES,
     IMG_SIZE_YAWNS,
     MODELS_DIR,
@@ -58,6 +60,18 @@ def main() -> None:
         print(f"[Error] Training data not found at {data_dir}. Did you run prepare_dataset.py?")
         return
 
+    def _count_images(split_dir: Path) -> int:
+        return sum(1 for p in split_dir.rglob("*") if p.is_file())
+
+    train_count = _count_images(data_dir / "train")
+    valid_count = _count_images(data_dir / "valid")
+    if train_count == 0 or valid_count == 0:
+        print(
+            f"[Error] Dataset for '{args.target}' is empty "
+            f"(train={train_count}, valid={valid_count})."
+        )
+        return
+
     print(f"\n--- Training Model for: {args.target.upper()} ---")
 
     # 1. Prepare Data Generators
@@ -99,12 +113,18 @@ def main() -> None:
         ModelCheckpoint(str(model_path), monitor="val_loss", save_best_only=True),
     ]
 
-    model.fit(
-        train_data,
-        validation_data=valid_data,
-        epochs=EPOCHS,
-        callbacks=callbacks,
-    )
+    fit_kwargs = {
+        "x": train_data,
+        "validation_data": valid_data,
+        "epochs": EPOCHS,
+        "callbacks": callbacks,
+    }
+    if args.target == "eyes":
+        # Eye dataset can be very large; cap steps for practical training time.
+        fit_kwargs["steps_per_epoch"] = min(len(train_data), 80)
+        fit_kwargs["validation_steps"] = min(len(valid_data), 20)
+
+    model.fit(**fit_kwargs)
 
     # 3. Save Artifacts
     model.save(model_path)

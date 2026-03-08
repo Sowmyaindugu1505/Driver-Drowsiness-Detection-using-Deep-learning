@@ -28,21 +28,41 @@ YAWN_MODEL_PATH = MODELS_DIR / "yawn_cnn.h5"
 YAWN_CLASS_MAP_PATH = MODELS_DIR / "yawn_class_indices.json"
 
 CASCADES_DIR = ASSETS_DIR / "haarcascades"
-FACE_CASCADE_PATH = CASCADES_DIR / "haarcascade_frontalface_default.xml"
-EYE_CASCADE_PATH = CASCADES_DIR / "haarcascade_eye.xml"
+FACE_CASCADE_PATH = CASCADES_DIR / "haarcascade_frontalface_alt2.xml"
+LEFT_EYE_CASCADE_PATH = CASCADES_DIR / "haarcascade_lefteye_2splits.xml"
+RIGHT_EYE_CASCADE_PATH = CASCADES_DIR / "haarcascade_righteye_2splits.xml"
 
 # -------------------------
 # Hyperparameters: Training
 # -------------------------
 IMG_SIZE_EYES = (24, 24)
 IMG_SIZE_YAWNS = (64, 64)
-BATCH_SIZE = 32
-EPOCHS = 15
+BATCH_SIZE = 256
+EPOCHS = 2
 
 # -------------------------
 # Hyperparameters: Detection
 # -------------------------
-EYE_DROWSY_SCORE_THRESHOLD = 15
-YAWN_PROBABILITY_THRESHOLD = 0.7
-YAWN_CONSECUTIVE_FRAMES = 8
-YAWN_EVENT_LIMIT = 3
+EYE_CLOSED_CLASS_INDEX = 0
+EYE_FULLY_CLOSED_PROBABILITY_THRESHOLD = 0.90
+EYE_DROWSY_SECONDS_THRESHOLD = 3.0
+YAWN_PROBABILITY_THRESHOLD = 0.45
+YAWN_END_PROBABILITY_THRESHOLD = 0.30
+YAWN_OPEN_SECONDS_THRESHOLD = 0.3
+YAWN_RELEASE_SECONDS_THRESHOLD = 0.2
+YAWN_MIN_GAP_SECONDS = 0.4
+YAWN_EVENT_LIMIT = 2
+
+
+def get_args():
+    """Shared args parser for train/eval modules invoked via run.py."""
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--target",
+        type=str,
+        required=True,
+        choices=["eyes", "yawns"],
+        help="Choose which model branch to run.",
+    )
+    args, _ = parser.parse_known_args()
+    return args
