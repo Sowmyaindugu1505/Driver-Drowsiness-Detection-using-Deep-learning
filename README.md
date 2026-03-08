@@ -1,71 +1,66 @@
 <div align="center">
-  <h1>🚗 Driver Drowsiness Detection System</h1>
-  <p><i>A robust, real-time Computer Vision system to detect driver fatigue using Eye and Yawn analysis.</i></p>
-  
+  <h1>🚗 Ultimate Driver Drowsiness System</h1>
+  <p><i>A beautifully structured, enterprise-grade Machine Learning computer vision project.</i></p>
   <br />
 </div>
 
-> **Note:** This project has been rebuilt from the ground up for simplicity, modularity, and error-free execution.
+> **Note:** This project has been rebuilt from the ground up for maximum simplicity, modularity, and error-free execution. It uses a single-entry-point architecture (`run.py`).
 
 ---
 
 ## 📋 Features
-- **Real-Time Detection:** Uses OpenCV and Haar Cascades for lightning-fast face and feature tracking.
-- **Dual Drowsiness Metrics:** 
-  - Tracks **Eye Closure** duration using a custom CNN.
-  - Tracks **Yawn Frequency** using a separate custom CNN.
-- **Audio & Visual Alarms:** Triggers an alarm sound (`alarm.wav`) and on-screen warnings when thresholds are exceeded.
-- **Unified & Flat Architecture:** Say goodbye to deeply nested folders. One config file rules them all.
+- **Single Command Interface:** You only ever need to execute `run.py`.
+- **Real-Time Detection:** Uses OpenCV and Haar Cascades for lightning-fast face tracking.
+- **Dual Neural Networks:** Tracks *Eye Closure* and *Yawn Frequency* with two custom CNNs.
+- **Clean Architecture:** Strict separation of source code (`src/`), trained models (`models/`), datasets (`data/`), and static dependencies (`assets/`).
 
 ---
 
 ## 🛠️ Prerequisites
 
-Ensure you have Python `3.9` or higher installed. You also need a working webcam for live detection.
+Ensure you have Python `3.9` or higher installed.
 
 ```bash
-# Install required libraries
-pip install tensorflow opencv-python pygame
+# Install the required libraries in 1 click!
+pip install -r requirements.txt
 ```
 
 ---
 
 ## 🚀 Quick Start Guide
 
-### 1. Data Preparation
-Place the raw dataset `archive.zip` in the root folder of this project.
+We have consolidated the entire project into a powerful, easy-to-use Command Line Interface.
 
-Run the elegant dataset preparation script to automatically extract and structure your training data:
+### 1. Data Preparation
+Place your raw dataset `archive.zip` inside `data/raw/`. Then simply run:
+
 ```bash
-python prepare_dataset.py
+python run.py --mode prep
 ```
-*This will create `data_eyes/` and `data_yawns/` with proper `train/valid/test` splits.*
+
+*This will extract and structure your training data nicely inside `data/processed/`.*
 
 ### 2. Train the Models
-We use a unified training script. You must train both models before running the detector.
+Train both models. They will automatically save inside the `models/` directory.
 
-**Train the Eye Model:**
 ```bash
-python train.py --target eyes
+python run.py --mode train --target eyes
+python run.py --mode train --target yawns
 ```
-
-**Train the Yawn Model:**
-```bash
-python train.py --target yawns
-```
-*Models are saved automatically inside the `models/` directory.*
 
 ### 3. Evaluate the Models (Optional)
-Check how well your models perform on the unseen test split:
+Check accuracy on the unseen test splits:
+
 ```bash
-python evaluate.py --target eyes
-python evaluate.py --target yawns
+python run.py --mode eval --target eyes
+python run.py --mode eval --target yawns
 ```
 
 ### 4. Run Live Detection
 Start the real-time detector. Ensure your webcam is unobstructed and the room is well-lit.
+
 ```bash
-python detect.py
+python run.py --mode detect
 ```
 
 - **Eyes Closed** too long? 🚨 ALARM!
@@ -75,35 +70,40 @@ python detect.py
 
 ---
 
-## ⚙️ Configuration (`config.py`)
-
-All core settings are centralized in `config.py`. You never need to hunt for hardcoded values again! 
-
-**Key Hyperparameters to Tune:**
-* `EYE_DROWSY_SCORE_THRESHOLD`: How many consecutive "closed" frames trigger an alert (default: 15).
-* `YAWN_PROBABILITY_THRESHOLD`: Confidence required to count a yawn (default: 0.7).
-* `YAWN_EVENT_LIMIT`: Number of recent yawns that trigger an alert (default: 3).
-
----
-
 ## 📁 Project Structure
 
 ```text
 .
-├── config.py             # Centralized settings and hyperparameters
-├── prepare_dataset.py    # Auto-extracts & splits archive.zip
-├── train.py              # Unified CNN training script
-├── evaluate.py           # Unified CNN evaluation script
-├── detect.py             # Live webcam driver drowsiness detector
+├── run.py                # 🔥 The ONLY script you need to execute 🔥
+├── requirements.txt      # 1-click dependency installation
 ├── README.md             # This comprehensive guide
-├── alarm.wav             # Alert sound triggered on drowsiness
-├── archive.zip           # Raw dataset (user provided)
-├── haarcascades/         # OpenCV face/eye detection cascades
-└── models/               # Auto-generated directory for trained .h5 models
+├── src/                  # The Python source code
+│   ├── config.py         # Centralized hyperparameters & thresholds
+│   ├── data_prep.py      # Zip extraction & splitting logic
+│   ├── model.py          # Unified CNN training logic
+│   ├── evaluate.py       # Metrics and accuracy
+│   └── detector.py       # Live webcam tracking logic
+├── data/                 
+│   ├── raw/archive.zip   # Your raw data goes here!
+│   └── processed/        # Auto-generated image datasets
+├── assets/               
+│   ├── haarcascades/     # OpenCV XML cascades
+│   └── alarm.wav         # Alert sound
+└── models/               # Auto-generated directory for .h5 models
 ```
 
 ---
 
+## ⚙️ Configuration (`src/config.py`)
+
+All core settings are centralized in `src/config.py`. 
+
+**Key Hyperparameters to Tune:**
+* `EYE_DROWSY_SCORE_THRESHOLD`: (Default: 15) Consecutive "closed" frames required for an alert.
+* `YAWN_PROBABILITY_THRESHOLD`: (Default: 0.7) Confidence required to count a yawn.
+* `YAWN_EVENT_LIMIT`: (Default: 3) Number of recent yawns that trigger an alarm.
+
 <div align="center">
+  <br />
   <p><i>Drive Safe. Stay Awake.</i></p>
 </div>
