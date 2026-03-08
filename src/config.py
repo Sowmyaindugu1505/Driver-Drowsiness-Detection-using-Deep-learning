@@ -1,105 +1,100 @@
-"""
-src/config.py  –  Centralized hyperparameters & path definitions.
-
-All threshold constants are defined here so that detector.py, model.py, and
-evaluate.py never contain magic numbers.
-"""
-
 import argparse
 from pathlib import Path
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Absolute Path Definitions
+# Paths
 # ─────────────────────────────────────────────────────────────────────────────
-# BASE_DIR resolves to the project root (one level up from src/)
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Assets
-ASSETS_DIR      = BASE_DIR / "assets"
-ALARM_PATH      = ASSETS_DIR / "alarm.wav"
+ASSETS_DIR             = BASE_DIR / "assets"
+ALARM_PATH             = ASSETS_DIR / "alarm.wav"
+CASCADES_DIR           = ASSETS_DIR / "haarcascades"
+FACE_CASCADE_PATH      = CASCADES_DIR / "haarcascade_frontalface_alt2.xml"
+LEFT_EYE_CASCADE_PATH  = CASCADES_DIR / "haarcascade_lefteye_2splits.xml"
+RIGHT_EYE_CASCADE_PATH = CASCADES_DIR / "haarcascade_righteye_2splits.xml"
 
-# Raw Data
-DATA_DIR        = BASE_DIR / "data"
-ARCHIVE_PATH    = DATA_DIR / "raw" / "archive.zip"
-EXTRACT_DIR     = DATA_DIR / "raw" / "archive_extracted"
-
-# Prepared Datasets
+DATA_DIR           = BASE_DIR / "data"
+ARCHIVE_PATH       = DATA_DIR / "raw" / "archive.zip"
+EXTRACT_DIR        = DATA_DIR / "raw" / "archive_extracted"
 PROCESSED_DATA_DIR = DATA_DIR / "processed"
 EYE_DATA_DIR       = PROCESSED_DATA_DIR / "data_eyes"
 YAWN_DATA_DIR      = PROCESSED_DATA_DIR / "data_yawns"
 
-# Models and Cascades
 MODELS_DIR          = BASE_DIR / "models"
 EYE_MODEL_PATH      = MODELS_DIR / "eye_cnn.h5"
 YAWN_MODEL_PATH     = MODELS_DIR / "yawn_cnn.h5"
 YAWN_CLASS_MAP_PATH = MODELS_DIR / "yawn_class_indices.json"
 
-CASCADES_DIR         = ASSETS_DIR / "haarcascades"
-FACE_CASCADE_PATH    = CASCADES_DIR / "haarcascade_frontalface_alt2.xml"
-LEFT_EYE_CASCADE_PATH  = CASCADES_DIR / "haarcascade_lefteye_2splits.xml"
-RIGHT_EYE_CASCADE_PATH = CASCADES_DIR / "haarcascade_righteye_2splits.xml"
-
 # ─────────────────────────────────────────────────────────────────────────────
-# Hyperparameters: Training
+# Training
 # ─────────────────────────────────────────────────────────────────────────────
 IMG_SIZE_EYES  = (24, 24)
 IMG_SIZE_YAWNS = (64, 64)
 BATCH_SIZE     = 256
-EPOCHS         = 20           # raised from 2 – EarlyStopping will cut it short anyway
+EPOCHS         = 20   # EarlyStopping will cut short when val_loss stops improving
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Hyperparameters: Eye Detection
+# Eye detection thresholds
 # ─────────────────────────────────────────────────────────────────────────────
 EYE_CLOSED_CLASS_INDEX = 0
-# CNN confidence required before we treat an eye as "closed"
+
+# CNN confidence required to classify a single eye as closed
 EYE_FULLY_CLOSED_PROBABILITY_THRESHOLD = 0.90
 
-# ── Display threshold ──────────────────────────────────────────────────────
-# Show "Eyes: Closed" (red) only once the eye has been continuously closed
-# for at least this many seconds.  Below this → show "Eyes: Open" (green).
-EYE_CLOSED_DISPLAY_SECONDS = 0.3          # NEW — was missing in original
+# Eyes must be continuously closed for this long before the LABEL changes
+# Requirement: >= 0.3 s
+EYE_CLOSED_DISPLAY_SECONDS = 0.3
 
-# ── Alarm threshold ────────────────────────────────────────────────────────
-# Trigger the drowsiness alarm once eyes are CONTINUOUSLY closed this long.
+# Eyes must be continuously closed for this long to TRIGGER THE ALARM
+# Requirement: >= 3.0 s
 EYE_DROWSY_SECONDS_THRESHOLD = 3.0
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Hyperparameters: Yawn Detection
+# Yawn detection thresholds
 # ─────────────────────────────────────────────────────────────────────────────
-# CNN confidence to START counting a mouth as open
-YAWN_PROBABILITY_THRESHOLD = 0.45
-# CNN confidence to END / release a yawn (hysteresis – must drop below this)
+
+# CNN confidence required to START treating the mouth as open.
+# Raised from 0.45 → 0.65 to reject talking / sighing (FIX for false counts).
+YAWN_PROBABILITY_THRESHOLD = 0.65
+
+# CNN confidence that must be sustained to END / release a yawn.
+# Must be at least 0.25 below start so there is a clear hysteresis band.
+# 0.65 - 0.30 = 0.35 gap  (FIX: was only 0.15, causing oscillation).
 YAWN_END_PROBABILITY_THRESHOLD = 0.30
 
-# ── Display threshold ──────────────────────────────────────────────────────
-# Show "Yawning" only once the mouth has been continuously open for this long.
-# Below this → show "Not Yawning".
-YAWN_OPEN_DISPLAY_SECONDS = 0.25          # NEW (renamed from YAWN_OPEN_SECONDS_THRESHOLD for clarity)
+# Mouth must stay ABOVE YAWN_PROBABILITY_THRESHOLD for this many continuous
+# seconds before the yawn is COUNTED.
+# Raised from 0.25 s → 1.5 s  (FIX: 0.25 s = ~7 frames, too easy to trigger
+# from a brief wide-mouth expression).
+# A genuine yawn mouth-open phase lasts 2-6 s; 1.5 s is the minimum gate.
+YAWN_OPEN_SECONDS_THRESHOLD = 1.5
 
-# How long mouth must stay open before the yawn EVENT is officially counted
-YAWN_OPEN_SECONDS_THRESHOLD = 0.25       # kept identical to display threshold
+# Mouth must be ABOVE threshold for this long before the LABEL shows "Yawning".
+# Requirement: >= 0.25 s  (unchanged — display responds faster than count).
+YAWN_OPEN_DISPLAY_SECONDS = 0.25
 
-# Time the mouth must stay CLOSED before the yawn is considered "released"
-YAWN_RELEASE_SECONDS_THRESHOLD = 0.2
+# After yawn_in_progress becomes True, the mouth must stay BELOW
+# YAWN_END_PROBABILITY_THRESHOLD for this long before the yawn is "released".
+# Raised from 0.2 s → 1.5 s  (FIX: 0.2 s is too short; brief lip movements
+# after a yawn kept re-triggering).
+YAWN_RELEASE_SECONDS_THRESHOLD = 1.5
 
-# Minimum gap between two counted yawn events (debounce)
-YAWN_MIN_GAP_SECONDS = 0.4
+# Minimum wall-clock gap between two counted yawn events.
+# Raised from 0.4 s → 3.0 s  (FIX: 0.4 s let a single physical yawn be
+# counted twice if the EMA briefly dipped and recovered).
+YAWN_MIN_GAP_SECONDS = 3.0
 
-# ── Alarm threshold ────────────────────────────────────────────────────────
-# Trigger the drowsiness alarm when this many valid yawns have been counted.
+# Number of valid yawns that TRIGGERS THE ALARM.
+# Requirement: >= 2
 YAWN_EVENT_LIMIT = 2
 
-
 # ─────────────────────────────────────────────────────────────────────────────
-# Shared CLI argument parser (used by model.py and evaluate.py)
+# Shared CLI parser (used by model.py and evaluate.py via run.py)
 # ─────────────────────────────────────────────────────────────────────────────
 def get_args():
-    """Shared args parser for train/eval modules invoked via run.py."""
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--target",
-        type=str,
-        required=True,
+        "--target", type=str, required=True,
         choices=["eyes", "yawns"],
         help="Choose which model branch to run.",
     )
