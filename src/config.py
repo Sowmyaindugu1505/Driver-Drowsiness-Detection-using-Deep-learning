@@ -1,15 +1,18 @@
 import argparse
 from pathlib import Path
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Paths
-# ─────────────────────────────────────────────────────────────────────────────
+# =============================================================================
+# PATHS
+# =============================================================================
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-ASSETS_DIR             = BASE_DIR / "assets"
-ALARM_PATH             = ASSETS_DIR / "alarm.wav"
-CASCADES_DIR           = ASSETS_DIR / "haarcascades"
-FACE_CASCADE_PATH      = CASCADES_DIR / "haarcascade_frontalface_alt2.xml"
+ASSETS_DIR        = BASE_DIR / "assets"
+ALARM_PATH        = ASSETS_DIR / "alarm.wav"
+CASCADES_DIR      = ASSETS_DIR / "haarcascades"
+FACE_CASCADE_PATH = CASCADES_DIR / "haarcascade_frontalface_alt2.xml"
+
+# Eye cascade paths — kept so model.py / data_prep.py that may reference
+# them do not break, but they are NOT used inside the detection loop.
 LEFT_EYE_CASCADE_PATH  = CASCADES_DIR / "haarcascade_lefteye_2splits.xml"
 RIGHT_EYE_CASCADE_PATH = CASCADES_DIR / "haarcascade_righteye_2splits.xml"
 
@@ -25,78 +28,84 @@ EYE_MODEL_PATH      = MODELS_DIR / "eye_cnn.h5"
 YAWN_MODEL_PATH     = MODELS_DIR / "yawn_cnn.h5"
 YAWN_CLASS_MAP_PATH = MODELS_DIR / "yawn_class_indices.json"
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Training
-# ─────────────────────────────────────────────────────────────────────────────
+# =============================================================================
+# TRAINING
+# =============================================================================
 IMG_SIZE_EYES  = (24, 24)
 IMG_SIZE_YAWNS = (64, 64)
 BATCH_SIZE     = 256
-EPOCHS         = 20   # EarlyStopping will cut short when val_loss stops improving
+EPOCHS         = 20
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Eye detection thresholds
-# ─────────────────────────────────────────────────────────────────────────────
+# =============================================================================
+# EYE DETECTION THRESHOLDS
+# =============================================================================
+
+# Which output index of the eye CNN corresponds to "closed".
+# Keras flow_from_directory assigns indices alphabetically:
+#   "closed" < "open"  →  closed=0, open=1
+# We probe the trained model at startup to confirm (see _infer_eye_closed_class_index).
 EYE_CLOSED_CLASS_INDEX = 0
 
-# CNN confidence required to classify a single eye as closed
-EYE_FULLY_CLOSED_PROBABILITY_THRESHOLD = 0.90
+# Average CNN confidence (across both eye crops) needed to call eyes "closed".
+# Fixed-proportion crops are clean and consistent, so 0.55 is a reliable midpoint.
+EYE_FULLY_CLOSED_PROBABILITY_THRESHOLD = 0.55
 
-# Eyes must be continuously closed for this long before the LABEL changes
-# Requirement: >= 0.3 s
+# Show "Eyes: Closed" label only after eyes have been continuously closed
+# for this many seconds.  Requirement: 0.3 s
 EYE_CLOSED_DISPLAY_SECONDS = 0.3
 
-# Eyes must be continuously closed for this long to TRIGGER THE ALARM
-# Requirement: >= 3.0 s
+# Trigger drowsiness alarm after eyes have been continuously closed
+# for this many seconds.  Requirement: 3.0 s
 EYE_DROWSY_SECONDS_THRESHOLD = 3.0
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Yawn detection thresholds
-# ─────────────────────────────────────────────────────────────────────────────
+# How many consecutive frames the CNN must call "closed" before the
+# duration timer starts accumulating.  2 frames ≈ 0.067 s at 30 fps —
+# absorbs single-frame CNN noise without adding perceptible latency.
+# (Was 3, which added 0.1 s, pushing perceived latency to 0.4 s > 0.3 s requirement.)
+EYE_CONSEC_FRAMES = 2
 
-# CNN confidence required to START treating the mouth as open.
-# Raised from 0.45 → 0.65 to reject talking / sighing (FIX for false counts).
-YAWN_PROBABILITY_THRESHOLD = 0.65
+# =============================================================================
+# YAWN DETECTION THRESHOLDS
+# =============================================================================
 
-# CNN confidence that must be sustained to END / release a yawn.
-# Must be at least 0.25 below start so there is a clear hysteresis band.
-# 0.65 - 0.30 = 0.35 gap  (FIX: was only 0.15, causing oscillation).
-YAWN_END_PROBABILITY_THRESHOLD = 0.30
+# CNN confidence above which the mouth is considered "open / yawning".
+# Talking pushes the CNN to ~0.30–0.40; genuine yawns reach ~0.60–0.95.
+# 0.45 sits cleanly between the two.
+YAWN_PROBABILITY_THRESHOLD = 0.45
 
-# Mouth must stay ABOVE YAWN_PROBABILITY_THRESHOLD for this many continuous
-# seconds before the yawn is COUNTED.
-# Raised from 0.25 s → 1.5 s  (FIX: 0.25 s = ~7 frames, too easy to trigger
-# from a brief wide-mouth expression).
-# A genuine yawn mouth-open phase lasts 2-6 s; 1.5 s is the minimum gate.
-YAWN_OPEN_SECONDS_THRESHOLD = 1.5
+# CNN confidence below which the mouth is considered "clearly closed".
+# Hysteresis gap = 0.45 − 0.20 = 0.25 — wide enough to prevent oscillation.
+YAWN_END_PROBABILITY_THRESHOLD = 0.20
 
-# Mouth must be ABOVE threshold for this long before the LABEL shows "Yawning".
-# Requirement: >= 0.25 s  (unchanged — display responds faster than count).
+# Mouth must stay above YAWN_PROBABILITY_THRESHOLD for this many continuous
+# seconds before a yawn is counted.
+# Requirement: mouth half-open for ≥ 0.2 s  — using 0.3 s for a small guard.
+YAWN_OPEN_SECONDS_THRESHOLD = 0.3
+
+# Show "Yawning" label after mouth has been above threshold for this long.
+# Requirement: 0.25 s
 YAWN_OPEN_DISPLAY_SECONDS = 0.25
 
-# After yawn_in_progress becomes True, the mouth must stay BELOW
-# YAWN_END_PROBABILITY_THRESHOLD for this long before the yawn is "released".
-# Raised from 0.2 s → 1.5 s  (FIX: 0.2 s is too short; brief lip movements
-# after a yawn kept re-triggering).
-YAWN_RELEASE_SECONDS_THRESHOLD = 1.5
+# After a yawn is counted, mouth must stay below YAWN_END_PROBABILITY_THRESHOLD
+# for this long before the lock is released and the next yawn can be counted.
+YAWN_RELEASE_SECONDS_THRESHOLD = 0.8
 
 # Minimum wall-clock gap between two counted yawn events.
-# Raised from 0.4 s → 3.0 s  (FIX: 0.4 s let a single physical yawn be
-# counted twice if the EMA briefly dipped and recovered).
+# Prevents a single slow yawn being counted twice.
 YAWN_MIN_GAP_SECONDS = 3.0
 
-# Number of valid yawns that TRIGGERS THE ALARM.
-# Requirement: >= 2
+# Number of counted yawns that triggers the alarm.  Requirement: 2
 YAWN_EVENT_LIMIT = 2
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Shared CLI parser (used by model.py and evaluate.py via run.py)
-# ─────────────────────────────────────────────────────────────────────────────
+# =============================================================================
+# SHARED CLI PARSER  (used by model.py / evaluate.py via run.py)
+# =============================================================================
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--target", type=str, required=True,
         choices=["eyes", "yawns"],
-        help="Choose which model branch to run.",
+        help="Which model to train or evaluate.",
     )
     args, _ = parser.parse_known_args()
     return args
