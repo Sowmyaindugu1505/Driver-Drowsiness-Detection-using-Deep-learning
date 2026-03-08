@@ -25,9 +25,22 @@ def load_yawn_class_index() -> int:
         return 1
 
     mapping = json.loads(YAWN_CLASS_MAP_PATH.read_text())
+    positive_aliases = {"yawn", "yawning", "mouth_open"}
+    negative_aliases = {"no_yawn", "not_yawn", "non_yawn", "normal"}
+
+    # 1) Prefer exact positive labels only.
     for class_name, index in mapping.items():
-        if "yawn" == class_name.lower() or class_name.lower().endswith("yawn"):
+        normalized = class_name.strip().lower().replace("-", "_").replace(" ", "_")
+        if normalized in positive_aliases:
             return int(index)
+
+    # 2) If exact positive label is unavailable, select whichever class is not a known negative.
+    for class_name, index in mapping.items():
+        normalized = class_name.strip().lower().replace("-", "_").replace(" ", "_")
+        if normalized not in negative_aliases:
+            return int(index)
+
+    # 3) Final fallback for old model mappings.
     return 1
 
 
