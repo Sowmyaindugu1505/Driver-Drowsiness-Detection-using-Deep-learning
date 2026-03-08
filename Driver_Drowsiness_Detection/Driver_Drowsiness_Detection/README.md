@@ -65,3 +65,27 @@ rg -n "^(<<<<<<<|=======|>>>>>>>)" *.py *.md *.ipynb
 ```
 
 Both commands should return no unresolved conflicts.
+
+## Manual PR merge via command line
+
+If GitHub shows conflicts, run:
+
+```bash
+git pull origin main
+git checkout codex/add-yawn-detection-to-drowsiness-model-5mc8qx
+git merge main
+```
+
+Then resolve conflicts in editor, add files, and commit:
+
+```bash
+git add .
+git commit -m "Resolve merge conflicts with main"
+git push -u origin codex/add-yawn-detection-to-drowsiness-model-5mc8qx
+```
+
+If your local repo has no `origin` remote configured, add it first with:
+
+```bash
+git remote add origin https://github.com/Sowmyaindugu1505/Driver-Drowsiness-Detection-using-Deep-learning.git
+```
