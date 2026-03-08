@@ -54,3 +54,14 @@ Press `q` to stop.
 ## Notes
 - Dataset split is deterministic (seed=42).
 - If yawn class order changes, `detect.py` reads `models/yawn_class_indices.json` automatically.
+
+## Merge-readiness checklist
+
+Before approving a PR, run:
+
+```bash
+git ls-files -u
+rg -n "^(<<<<<<<|=======|>>>>>>>)" *.py *.md *.ipynb
+```
+
+Both commands should return no unresolved conflicts.
