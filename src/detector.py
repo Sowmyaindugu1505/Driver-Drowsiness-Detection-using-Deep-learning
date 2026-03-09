@@ -130,9 +130,6 @@ class DrowsinessDetector:
         # Eye state
         self.eye_closed_duration = 0.0
         self.eye_consec_closed   = 0
-        self.eye_consec_open     = 0
-        self.eye_prob_ema        = 0.0
-        self.eye_pair_prob_ema   = 0.0
 
         # Yawn state
         self.yawn_open_duration    = 0.0
@@ -144,7 +141,6 @@ class DrowsinessDetector:
 
         # Alarm latch — set True once, never reset
         self.is_drowsy_alarm = False
-        self.alarm_reason = None  # "eyes" or "yawns"
 
         # Cache thresholds locally to avoid repeated attribute lookups
         self.eye_thr        = EYE_FULLY_CLOSED_PROBABILITY_THRESHOLD
@@ -365,34 +361,14 @@ class DrowsinessDetector:
             )
 
         avg_prob = sum(probs) / len(probs)   # average of 1 or 2 valid probs
-        pair_prob = min(probs) if len(probs) >= 2 else probs[0]
-        if self.eye_prob_ema <= 0.0:
-            self.eye_prob_ema = avg_prob
-        else:
-            # Smooth frame-to-frame eye probability to remove flicker.
-            self.eye_prob_ema = 0.75 * self.eye_prob_ema + 0.25 * avg_prob
-        if self.eye_pair_prob_ema <= 0.0:
-            self.eye_pair_prob_ema = pair_prob
-        else:
-            # Pair EMA uses lower eye score, so "closed" needs both eyes to agree.
-            self.eye_pair_prob_ema = 0.75 * self.eye_pair_prob_ema + 0.25 * pair_prob
 
-        # Stricter threshold to avoid false "closed" when eyes are open.
-        close_thr = max(0.72, self.eye_thr + 0.12)
-        open_thr = close_thr - 0.10
-
-        eye_signal = self.eye_pair_prob_ema if len(probs) >= 2 else self.eye_prob_ema
-        if eye_signal >= close_thr:
+        if avg_prob >= self.eye_thr:
             self.eye_consec_closed += 1
-            self.eye_consec_open = 0
-        elif eye_signal <= open_thr:
-            self.eye_consec_open += 1
-            self.eye_consec_closed = 0
-        # In hysteresis band keep previous counters (stable state).
-
-        if self.eye_consec_closed >= EYE_CONSEC_FRAMES:
-            self.eye_closed_duration += dt
-        elif self.eye_consec_open >= EYE_CONSEC_FRAMES:
+            if self.eye_consec_closed >= EYE_CONSEC_FRAMES:
+                self.eye_closed_duration += dt
+        else:
+            # Positively open — reset both consec counter and duration
+            self.eye_consec_closed   = 0
             self.eye_closed_duration = 0.0
 
         return (
@@ -546,12 +522,12 @@ class DrowsinessDetector:
                         yawn_color = (0, 165, 255)  # orange
 
                 else:
-                    # No face detected — reset eye state to avoid stale "closed" carryover.
-                    self.eye_closed_duration = 0.0
-                    self.eye_consec_closed = 0
-                    self.eye_consec_open = 0
-                    self.eye_prob_ema = 0.0
-                    self.eye_pair_prob_ema = 0.0
+                    # No face detected — drain eye timer slowly (not a hard reset)
+                    # so a brief occlusion cannot cancel a 2.9 s accumulation.
+                    self.eye_closed_duration = max(
+                        0.0, self.eye_closed_duration - dt * 0.5
+                    )
+                    self.eye_consec_closed = max(0, self.eye_consec_closed - 1)
 
                     # FIX: also reset yawn EMA and open timer on no-face.
                     # Stale EMA from a previous yawn could show "Yawning"
@@ -560,22 +536,13 @@ class DrowsinessDetector:
                     self.yawn_open_duration = 0.0
 
                 # ── Alarm logic ───────────────────────────────────────────────
-                eye_alarm_now = (
-                    self.eye_model is not None
-                    and self.eye_closed_duration >= EYE_DROWSY_SECONDS_THRESHOLD
-                )
-                yawn_alarm_now = (
-                    self.yawn_model is not None
-                    and self.yawn_count >= YAWN_EVENT_LIMIT
-                )
+                if (self.eye_model is not None
+                        and self.eye_closed_duration >= EYE_DROWSY_SECONDS_THRESHOLD):
+                    self.is_drowsy_alarm = True
 
-                if not self.is_drowsy_alarm:
-                    if eye_alarm_now:
-                        self.is_drowsy_alarm = True
-                        self.alarm_reason = "eyes"
-                    elif yawn_alarm_now:
-                        self.is_drowsy_alarm = True
-                        self.alarm_reason = "yawns"
+                if (self.yawn_model is not None
+                        and self.yawn_count >= YAWN_EVENT_LIMIT):
+                    self.is_drowsy_alarm = True
 
                 if self.is_drowsy_alarm:
                     self._play_alarm()
@@ -587,17 +554,6 @@ class DrowsinessDetector:
                             (10, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.85, yawn_color, 2)
                 cv2.putText(frame, f"Yawn Count: {self.yawn_count}",
                             (10, 115), cv2.FONT_HERSHEY_SIMPLEX, 0.85, (255, 255, 255), 2)
-                if self.is_drowsy_alarm:
-                    alert_text = "Drowsy Alert!" if self.alarm_reason == "eyes" else "Too many Yawns!"
-                    cv2.putText(
-                        frame,
-                        alert_text,
-                        (10, 155),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.95,
-                        (0, 0, 255),
-                        2,
-                    )
 
                 cv2.imshow("Driver Drowsiness Detection", frame)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
