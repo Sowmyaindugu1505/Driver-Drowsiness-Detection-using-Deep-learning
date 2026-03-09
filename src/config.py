@@ -51,8 +51,8 @@ EYE_CLOSED_CLASS_INDEX = 0
 EYE_FULLY_CLOSED_PROBABILITY_THRESHOLD = 0.55
 
 # Show "Eyes: Closed" label only after eyes have been continuously closed
-# for this many seconds.  Requirement: 0.25 s
-EYE_CLOSED_DISPLAY_SECONDS = 0.25
+# for this many seconds.  Requirement: 0.3 s
+EYE_CLOSED_DISPLAY_SECONDS = 0.3
 
 # Trigger drowsiness alarm after eyes have been continuously closed
 # for this many seconds.  Requirement: 3.0 s
@@ -83,16 +83,16 @@ YAWN_END_PROBABILITY_THRESHOLD = 0.20
 YAWN_OPEN_SECONDS_THRESHOLD = 0.3
 
 # Show "Yawning" label after mouth has been above threshold for this long.
-# Requirement: 0.3 s
-YAWN_OPEN_DISPLAY_SECONDS = 0.3
+# Requirement: 0.25 s
+YAWN_OPEN_DISPLAY_SECONDS = 0.25
 
 # After a yawn is counted, mouth must stay below YAWN_END_PROBABILITY_THRESHOLD
 # for this long before the lock is released and the next yawn can be counted.
 YAWN_RELEASE_SECONDS_THRESHOLD = 0.8
 
 # Minimum wall-clock gap between two counted yawn events.
-# Requirement: 2.0 s
-YAWN_MIN_GAP_SECONDS = 2.0
+# Prevents a single slow yawn being counted twice.
+YAWN_MIN_GAP_SECONDS = 3.0
 
 # Number of counted yawns that triggers the alarm.  Requirement: 2
 YAWN_EVENT_LIMIT = 2
