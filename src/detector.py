@@ -8,7 +8,7 @@ ON-SCREEN OUTPUT (exactly three lines, nothing else):
   Line 3:  "Yawn Count: N" (white)
 
 DETECTION RULES:
-  Show "Eyes: Closed"   when eye_closed_duration >= 0.25 s, else "Eyes: Open"
+  Show "Eyes: Closed"   when eye_closed_duration >= 0.3 s, else "Eyes: Open"
   Trigger eye alarm     when eye_closed_duration >= 3.0 s
   Show "Yawning"        when yawn_open_duration  >= 0.25 s, else "Not Yawning"
   Count a yawn          when yawn_open_duration  >= 0.3 s
@@ -130,8 +130,6 @@ class DrowsinessDetector:
         # Eye state
         self.eye_closed_duration = 0.0
         self.eye_consec_closed   = 0
-        self.eye_consec_open     = 0
-        self.eye_prob_ema        = 0.0
 
         # Yawn state
         self.yawn_open_duration    = 0.0
@@ -143,7 +141,6 @@ class DrowsinessDetector:
 
         # Alarm latch — set True once, never reset
         self.is_drowsy_alarm = False
-        self.alarm_reason = None  # "eyes" or "yawns"
 
         # Cache thresholds locally to avoid repeated attribute lookups
         self.eye_thr        = EYE_FULLY_CLOSED_PROBABILITY_THRESHOLD
@@ -332,21 +329,15 @@ class DrowsinessDetector:
         Algorithm
         ─────────
         1. Extract left and right eye crops at fixed proportions.
-        2. Get CNN closed-probability for each crop (None = unusable crop).
-        3. Average valid probabilities — avoids an empty crop dragging the
-           average to 0.0 and masking a real closure.
-        4. Apply a light EMA (α=0.50) to smooth frame-to-frame CNN noise
-           without adding sluggish lag (0.75 was too heavy and caused stale
-           readings that made the label oscillate).
-        5. Hysteresis gate:
-             close_thr = EYE_FULLY_CLOSED_PROBABILITY_THRESHOLD (0.55)
-             open_thr  = close_thr - 0.15  (= 0.40)
-           The 0.15 gap is wide enough to prevent rapid toggling when the
-           CNN fluctuates around the boundary.
-        6. Once eye_consec_closed >= EYE_CONSEC_FRAMES (2), accumulate
-           eye_closed_duration by dt every frame.
-           Once eye_consec_open >= EYE_CONSEC_FRAMES, reset duration to 0.
-        7. Return 'Eyes: Closed' once duration >= EYE_CLOSED_DISPLAY_SECONDS (0.25 s).
+        2. Get CNN closed-probability for each crop.
+           Crops returning None (empty) are excluded from the average.
+        3. Average valid probabilities only — avoids a 0.0 from an unusable
+           crop dragging the average below threshold and hiding a real closure.
+        4. avg_prob >= threshold  →  increment eye_consec_closed.
+           Once consec count reaches EYE_CONSEC_FRAMES (=2), start accumulating
+           eye_closed_duration by dt each frame.
+           avg_prob < threshold   →  reset both consec count and duration to 0.
+        5. Return 'Eyes: Closed' once duration >= EYE_CLOSED_DISPLAY_SECONDS (0.3 s).
         """
         if self.eye_model is None:
             return "Eyes: Open"
@@ -362,7 +353,7 @@ class DrowsinessDetector:
         ]
 
         if not probs:
-            # Both crops somehow empty — hold current state, don't reset timer
+            # Both crops somehow empty — treat as ambiguous, hold timer
             return (
                 "Eyes: Closed"
                 if self.eye_closed_duration >= EYE_CLOSED_DISPLAY_SECONDS
@@ -371,33 +362,13 @@ class DrowsinessDetector:
 
         avg_prob = sum(probs) / len(probs)   # average of 1 or 2 valid probs
 
-        # Light EMA (α=0.50) — responsive yet smooth.
-        # Initialise to first reading to avoid a cold-start lag.
-        if self.eye_prob_ema <= 0.0:
-            self.eye_prob_ema = avg_prob
-        else:
-            self.eye_prob_ema = 0.50 * self.eye_prob_ema + 0.50 * avg_prob
-
-        ema = self.eye_prob_ema
-
-        # Hysteresis: close_thr from config (0.55), open_thr 0.15 below it (0.40).
-        # Gap of 0.15 prevents rapid Open/Closed toggling when EMA hovers at boundary.
-        close_thr = self.eye_thr          # 0.55 from config
-        open_thr  = close_thr - 0.15     # 0.40
-
-        if ema >= close_thr:
+        if avg_prob >= self.eye_thr:
             self.eye_consec_closed += 1
-            self.eye_consec_open    = 0
-        elif ema <= open_thr:
-            self.eye_consec_open   += 1
-            self.eye_consec_closed  = 0
-        # In hysteresis band — hold both counters unchanged to stay stable.
-
-        if self.eye_consec_closed >= EYE_CONSEC_FRAMES:
-            # Eyes confirmed closed: accumulate duration
-            self.eye_closed_duration += dt
-        elif self.eye_consec_open >= EYE_CONSEC_FRAMES:
-            # Eyes confirmed open: reset duration immediately
+            if self.eye_consec_closed >= EYE_CONSEC_FRAMES:
+                self.eye_closed_duration += dt
+        else:
+            # Positively open — reset both consec counter and duration
+            self.eye_consec_closed   = 0
             self.eye_closed_duration = 0.0
 
         return (
@@ -551,11 +522,12 @@ class DrowsinessDetector:
                         yawn_color = (0, 165, 255)  # orange
 
                 else:
-                    # No face detected — reset eye state to avoid stale "closed" carryover.
-                    self.eye_closed_duration = 0.0
-                    self.eye_consec_closed = 0
-                    self.eye_consec_open = 0
-                    self.eye_prob_ema = 0.0
+                    # No face detected — drain eye timer slowly (not a hard reset)
+                    # so a brief occlusion cannot cancel a 2.9 s accumulation.
+                    self.eye_closed_duration = max(
+                        0.0, self.eye_closed_duration - dt * 0.5
+                    )
+                    self.eye_consec_closed = max(0, self.eye_consec_closed - 1)
 
                     # FIX: also reset yawn EMA and open timer on no-face.
                     # Stale EMA from a previous yawn could show "Yawning"
@@ -564,22 +536,13 @@ class DrowsinessDetector:
                     self.yawn_open_duration = 0.0
 
                 # ── Alarm logic ───────────────────────────────────────────────
-                eye_alarm_now = (
-                    self.eye_model is not None
-                    and self.eye_closed_duration >= EYE_DROWSY_SECONDS_THRESHOLD
-                )
-                yawn_alarm_now = (
-                    self.yawn_model is not None
-                    and self.yawn_count >= YAWN_EVENT_LIMIT
-                )
+                if (self.eye_model is not None
+                        and self.eye_closed_duration >= EYE_DROWSY_SECONDS_THRESHOLD):
+                    self.is_drowsy_alarm = True
 
-                if not self.is_drowsy_alarm:
-                    if eye_alarm_now:
-                        self.is_drowsy_alarm = True
-                        self.alarm_reason = "eyes"
-                    elif yawn_alarm_now:
-                        self.is_drowsy_alarm = True
-                        self.alarm_reason = "yawns"
+                if (self.yawn_model is not None
+                        and self.yawn_count >= YAWN_EVENT_LIMIT):
+                    self.is_drowsy_alarm = True
 
                 if self.is_drowsy_alarm:
                     self._play_alarm()
@@ -591,39 +554,6 @@ class DrowsinessDetector:
                             (10, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.85, yawn_color, 2)
                 cv2.putText(frame, f"Yawn Count: {self.yawn_count}",
                             (10, 115), cv2.FONT_HERSHEY_SIMPLEX, 0.85, (255, 255, 255), 2)
-                if self.is_drowsy_alarm:
-                    alert_text = (
-                        "DROWSY ALERT!"
-                        if self.alarm_reason == "eyes"
-                        else "TOO MANY YAWNS!"
-                    )
-                    # Draw a solid red background banner for maximum visibility
-                    banner_y1, banner_y2 = 160, 210
-                    cv2.rectangle(
-                        frame,
-                        (0, banner_y1),
-                        (frame.shape[1], banner_y2),
-                        (0, 0, 200),   # dark red fill
-                        -1,
-                    )
-                    # White text on red banner, bold (thickness=3)
-                    cv2.putText(
-                        frame,
-                        alert_text,
-                        (10, banner_y2 - 12),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        1.1,
-                        (255, 255, 255),   # white text on red banner
-                        3,
-                    )
-                    # Flashing red border around the whole frame
-                    cv2.rectangle(
-                        frame,
-                        (0, 0),
-                        (frame.shape[1] - 1, frame.shape[0] - 1),
-                        (0, 0, 255),
-                        6,
-                    )
 
                 cv2.imshow("Driver Drowsiness Detection", frame)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
